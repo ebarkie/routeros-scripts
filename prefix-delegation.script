@@ -1,36 +1,79 @@
-# RouterOS doesn't allow specifying prefix ID's when using IPv6 prefix delegation with
+# This script allows specifying prefix ID's when using IPv6 prefix delegation with
 # pools.
 #
 # For example, if your ISP provides a /56 prefix, you have 255 /64 networks available
-# (ranging from 0-ff) and it would be nice to be able to choose which ones are used for
+# (ranging from 0-ff) and it's nice to be able to choose which ones are used for
 # each interface rather than having them randomly allocated from the pool.
 #
-# To use this script setup interfaces without specifying a from-pool, for example:
+# To use this script setup interfaces without specifying a from-pool but instead
+# specify the information somewhere in the comment, for example:
 #
 # /ipv6 address
-# add address=::1 comment=LAN interface=vlan-lan
-# add address=::1 comment=DMZ interface=vlan-dmz
+# add address=::1 comment="LAN from-pool=google-fiber token=::a:0:0:0:1" interface=vlan-lan
+# add address=::1 comment="DMZ from-pool=google-fiber token=::b:0:0:0:1" interface=vlan-dmz
 #
-# Then update the list below with the desired token suffix and the comment that
-# matches the interface.
+# The script will update the interface addresses accordingly.
+#
+# TODO:
+# - Update firewall address lists
+# - Update WireGuard peers
 
-:local tokens {
-   "::aa:0:0:0:1"={comment="LAN"};
-   "::bb:0:0:0:1"={comment="DMZ"}
+# split slices s into all substrings separated by sep and returns an array of all
+# substrings between those separators.
+:global split do={
+  :local parts
+  :local part ""
+
+  :for i from=0 to=[:len $s] do={
+    :local c [:pick $s $i ($i+1)]
+    if ($c != $sep) do={
+      :set $part ($part.$c)
+    } else {
+      :set ($parts->[:len $parts]) $part
+      :set $part ""
+    }
+  }
+
+  :if ([:len $part] > 0) do={
+    :set ($parts->[:len $parts]) $part
+  }
+
+  :return $parts
 }
-:local fromPool "google-fiber"
 
-:local pool [/ipv6/pool/get $fromPool]
-:log info ("Pool prefix is: ".$pool->"prefix")
-:local prefixNet [:toip6 [:pick ($pool->"prefix") 0 [:tonum [:find ($pool->"prefix") "/"]]]]
+# getTag finds the first occurrence of "tag=<value>" in a string and returns
+# the value.
+:global getTag do={
+  :global split
 
-:foreach token,attrs in=$tokens do={
-  :local haveAddr [/ipv6/address/get [find comment=($attrs->"comment")] address]
+  :foreach word in=[$split s=$s sep=" "] do={
+    :local kv [$split s=$word sep="="]
+    :if ([:len $kv] = 2 and $kv->0 = $tag) do={
+      :return ($kv->1)
+    }
+  }
+
+  :return ""
+}
+
+/ipv6/address
+:foreach a in=[find where comment ~ ("token=.*") ] do={
+  :local fromPool [$getTag s=[get $a comment] tag="from-pool"]
+  :local token [$getTag s=[get $a comment] tag="token"]
+
+  :local pool [/ipv6/pool/get $fromPool]
+  :local prefixNet [:toip6 [:pick ($pool->"prefix") 0 [:tonum [:find ($pool->"prefix") "/"]]]]
+
+  :local interface [get $a interface];
+  :local haveAddr [get $a address];
   :local wantAddr (($prefixNet | [:toip6 $token])."/".$pool->"prefix-length")
-  if ($haveAddr = $wantAddr) d={
-    :log info ($attrs->"comment"." address is already set to: ".$haveAddr)
+
+  :log debug ($interface.": from-pool=".$fromPool." (".$pool->"prefix"."), token=".$token) 
+
+  :if ($haveAddr = $wantAddr) do={
+    :log info ($interface." address is already set to: ".$haveAddr)
   } else={
-    :log info ("Changing ".$attrs->"comment"." address from: ".$haveAddr." to: ".$wantAddr)
-    /ipv6/address/set [find comment=($attrs->"comment")] address=$wantAddr
+    :log info ("Changing ".$interface." address from: ".$haveAddr." to: ".$wantAddr)
+    /ipv6/address/set $a address=$wantAddr
   }
 }
