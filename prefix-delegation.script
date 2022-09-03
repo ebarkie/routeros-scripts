@@ -1,0 +1,36 @@
+# RouterOS doesn't allow specifying prefix ID's when using IPv6 prefix delegation with
+# pools.
+#
+# For example, if your ISP provides a /56 prefix, you have 255 /64 networks available
+# (ranging from 0-ff) and it would be nice to be able to choose which ones are used for
+# each interface rather than having them randomly allocated from the pool.
+#
+# To use this script setup interfaces without specifying a from-pool, for example:
+#
+# /ipv6 address
+# add address=::1 comment=LAN interface=vlan-lan
+# add address=::1 comment=DMZ interface=vlan-dmz
+#
+# Then update the list below with the desired token suffix and the comment that
+# matches the interface.
+
+:local tokens {
+   "::aa:0:0:0:1"={comment="LAN"};
+   "::bb:0:0:0:1"={comment="DMZ"}
+}
+:local fromPool "google-fiber"
+
+:local pool [/ipv6/pool/get $fromPool]
+:log info ("Pool prefix is: ".$pool->"prefix")
+:local prefixNet [:toip6 [:pick ($pool->"prefix") 0 [:tonum [:find ($pool->"prefix") "/"]]]]
+
+:foreach token,attrs in=$tokens do={
+  :local haveAddr [/ipv6/address/get [find comment=($attrs->"comment")] address]
+  :local wantAddr (($prefixNet | [:toip6 $token])."/".$pool->"prefix-length")
+  if ($haveAddr = $wantAddr) d={
+    :log info ($attrs->"comment"." address is already set to: ".$haveAddr)
+  } else={
+    :log info ("Changing ".$attrs->"comment"." address from: ".$haveAddr." to: ".$wantAddr)
+    /ipv6/address/set [find comment=($attrs->"comment")] address=$wantAddr
+  }
+}
