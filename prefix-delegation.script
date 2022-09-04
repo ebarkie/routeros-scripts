@@ -6,17 +6,15 @@
 # each interface rather than having them randomly allocated from the pool.
 #
 # To use this script setup interfaces without specifying a from-pool but instead
-# specify the information somewhere in the comment, for example:
+# specify the tags somewhere in the comment, for example:
 #
 # /ipv6 address
 # add address=::1 comment="LAN from-pool=google-fiber token=::a:0:0:0:1" interface=vlan-lan
 # add address=::1 comment="DMZ from-pool=google-fiber token=::b:0:0:0:1" interface=vlan-dmz
 #
-# The script will update the interface addresses accordingly.
+# The script will maintain the interface addresses accordingly.
 #
-# TODO:
-# - Update firewall address lists
-# - Update WireGuard peers
+# It will also update IPv6 firewall address lists in the same way.
 
 # split slices s into all substrings separated by sep and returns an array of all
 # substrings between those separators.
@@ -26,7 +24,7 @@
 
   :for i from=0 to=[:len $s] do={
     :local c [:pick $s $i ($i+1)]
-    if ($c != $sep) do={
+    :if ($c != $sep) do={
       :set $part ($part.$c)
     } else {
       :set ($parts->[:len $parts]) $part
@@ -41,8 +39,7 @@
   :return $parts
 }
 
-# getTag finds the first occurrence of "tag=<value>" in a string and returns
-# the value.
+# getTag finds the first occurrence of tag in a string and returns the value.
 :global getTag do={
   :global split
 
@@ -56,24 +53,57 @@
   :return ""
 }
 
+# calcPoolAddr calculates an address for a given prefix, prefixlen, and token.
+:global calcPoolAddr do={
+  :local net [:toip6 [:pick $prefix 0 [:tonum [:find $prefix "/"]]]]
+
+  :return (($net | [:toip6 $token])."/".$prefixLen)
+}
+
+:local test false
+
 /ipv6/address
+:foreach a in=[find where comment ~ ("token=.*")] do={
+  :local fromPool [$getTag s=[get $a comment] tag="from-pool"]
+  :local token [$getTag s=[get $a comment] tag="token"]
+
+  :local interface [get $a interface];
+  :local haveAddr [get $a address];
+  :local pool [/ipv6/pool/get $fromPool]
+  :local wantAddr [$calcPoolAddr prefix=($pool->"prefix") prefixLen=($pool->"prefix-length") token=$token]
+  :log debug ("ipv6 address interface:".$interface." from-pool:".$fromPool." (".$pool->"prefix".") token ".$token)
+
+  :if ($haveAddr = $wantAddr) do={
+    :log info ("ipv6 address interface:".$interface." address:".$haveAddr." address is set correctly")
+  } else={
+    :log info ("ipv6 address interface:".$interface." address:".$haveAddr." changing to ".$wantAddr)
+    :if (!test) do={
+      /ipv6/address/set $a address=$wantAddr
+    }
+  }
+}
+
+/ipv6/firewall/address-list
 :foreach a in=[find where comment ~ ("token=.*") ] do={
   :local fromPool [$getTag s=[get $a comment] tag="from-pool"]
   :local token [$getTag s=[get $a comment] tag="token"]
 
-  :local pool [/ipv6/pool/get $fromPool]
-  :local prefixNet [:toip6 [:pick ($pool->"prefix") 0 [:tonum [:find ($pool->"prefix") "/"]]]]
-
-  :local interface [get $a interface];
+  :local list [get $a list];
   :local haveAddr [get $a address];
-  :local wantAddr (($prefixNet | [:toip6 $token])."/".$pool->"prefix-length")
-
-  :log debug ($interface.": from-pool=".$fromPool." (".$pool->"prefix"."), token=".$token) 
+  :local pool [/ipv6/pool/get $fromPool]
+  :local wantAddr [$calcPoolAddr prefix=($pool->"prefix") prefixLen=128 token=$token ]
+  :log debug ("ipv6 address list:".$list.": from-pool:".$fromPool." (".$pool->"prefix"."), token ".$token)
 
   :if ($haveAddr = $wantAddr) do={
-    :log info ($interface." address is already set to: ".$haveAddr)
+    :log info ("ipv6 address list:".$list." address:".$haveAddr." address is set correctly")
   } else={
-    :log info ("Changing ".$interface." address from: ".$haveAddr." to: ".$wantAddr)
-    /ipv6/address/set $a address=$wantAddr
+    :log info ("ipv6 address list:".$list." address:".$haveAddr." changing to ".$wantAddr)
+    :if (!test) do={
+      /ipv6/firewall/address-list/set $a address=$wantAddr
+    }
   }
 }
+
+# TODO: update network discovery DNS servers
+
+# TODO: update WireGuard peers
