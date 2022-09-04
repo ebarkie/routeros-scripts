@@ -1,11 +1,12 @@
 # This script allows specifying prefix ID's when using IPv6 prefix delegation with
-# pools.
+# pools and maintaining IPv6 address lists and network detection DNS servers based
+# on prefix delegations.
 #
 # For example, if your ISP provides a /56 prefix, you have 255 /64 networks available
 # (ranging from 0-ff) and it's nice to be able to choose which ones are used for
 # each interface rather than having them randomly allocated from the pool.
 #
-# To use this script setup interfaces without specifying a from-pool but instead
+# To use this script setup interfaces without specifying a "from-pool" but instead
 # specify the tags somewhere in the comment, for example:
 #
 # /ipv6 address
@@ -14,7 +15,21 @@
 #
 # The script will maintain the interface addresses accordingly.
 #
-# It will also update IPv6 firewall address lists in the same way.
+# Address lists work the same way:
+#
+# /ipv6 firewall address-list
+# add address=::5/128 comment="from-pool=google-fiber token=::a:0:0:0:5" list=ns
+#
+# Network detection DNS broadcasts work by having one or more addresses tagged with
+# service=dns.  The address may be disabled.
+#
+# /ipv6 address
+# add address=::5 advertise=no comment="service=dns from-pool=google-fiber token=::a:0:0:0:5" disabled=yes interface=\
+#   vlan-lan no-dad=yes
+# /ipv6 nd
+# add dns=::5 hop-limit=64 interface=vlan-lan
+
+:local test false
 
 # split slices s into all substrings separated by sep and returns an array of all
 # substrings between those separators.
@@ -24,7 +39,7 @@
 
   :for i from=0 to=[:len $s] do={
     :local c [:pick $s $i ($i+1)]
-    :if ($c != $sep) do={
+    :if ($c!=$sep) do={
       :set $part ($part.$c)
     } else {
       :set ($parts->[:len $parts]) $part
@@ -45,7 +60,7 @@
 
   :foreach word in=[$split s=$s sep=" "] do={
     :local kv [$split s=$word sep="="]
-    :if ([:len $kv] = 2 and $kv->0 = $tag) do={
+    :if ([:len $kv]=2 and $kv->0=$tag) do={
       :return ($kv->1)
     }
   }
@@ -53,33 +68,37 @@
   :return ""
 }
 
-# calcPoolAddr calculates an address for a given prefix, prefixlen, and token.
+# calcPoolAddr calculates an address for a given prefix and token.
 :global calcPoolAddr do={
   :local net [:toip6 [:pick $prefix 0 [:tonum [:find $prefix "/"]]]]
 
-  :return (($net | [:toip6 $token])."/".$prefixLen)
+  :return ($net | [:toip6 $token])
 }
 
-:local test false
-
+:local dnsServers
 /ipv6/address
 :foreach a in=[find where comment~("token=.*")] do={
+  :local service [$getTag s=[get $a comment] tag="service"]
   :local fromPool [$getTag s=[get $a comment] tag="from-pool"]
   :local token [$getTag s=[get $a comment] tag="token"]
 
   :local interface [get $a interface];
   :local haveAddr [get $a address];
   :local pool [/ipv6/pool/get $fromPool]
-  :local wantAddr [$calcPoolAddr prefix=($pool->"prefix") prefixLen=($pool->"prefix-length") token=$token]
+  :local wantAddr ([$calcPoolAddr prefix=($pool->"prefix") token=$token]."/".($pool->"prefix-length"))
   :log debug ("ipv6 address interface:".$interface." from-pool:".$fromPool." (".$pool->"prefix".") token ".$token)
 
-  :if ($haveAddr = $wantAddr) do={
-    :log debug ("ipv6 address interface:".$interface." address:".$haveAddr." address is set correctly")
+  :if ($haveAddr=$wantAddr) do={
+    :log info ("ipv6 address interface:".$interface." address:".$haveAddr." address is set correctly")
   } else={
     :log warning ("ipv6 address interface:".$interface." address:".$haveAddr." changing to ".$wantAddr)
     :if (!test) do={
       /ipv6/address/set $a address=$wantAddr
     }
+  }
+
+  :if ($service = "dns") do={
+    :set ($dnsServers->[:len $dnsServers]) [$calcPoolAddr prefix=($pool->"prefix") token=$token]
   }
 }
 
@@ -91,11 +110,11 @@
   :local list [get $a list];
   :local haveAddr [get $a address];
   :local pool [/ipv6/pool/get $fromPool]
-  :local wantAddr [$calcPoolAddr prefix=($pool->"prefix") prefixLen=128 token=$token ]
+  :local wantAddr ([$calcPoolAddr prefix=($pool->"prefix") token=$token ]."/128")
   :log debug ("ipv6 address list:".$list.": from-pool:".$fromPool." (".$pool->"prefix"."), token ".$token)
 
-  :if ($haveAddr = $wantAddr) do={
-    :log debug ("ipv6 address list:".$list." address:".$haveAddr." address is set correctly")
+  :if ($haveAddr=$wantAddr) do={
+    :log info ("ipv6 address list:".$list." address:".$haveAddr." address is set correctly")
   } else={
     :log warning ("ipv6 address list:".$list." address:".$haveAddr." changing to ".$wantAddr)
     :if (!test) do={
@@ -104,6 +123,17 @@
   }
 }
 
-# TODO: update network discovery DNS servers
+/ipv6/nd
+:foreach n in=[find where dns!=""] do={
+  :local interface [get $n interface];
+  :local dns [get $n dns]
 
-# TODO: update WireGuard peers
+  :if ($dns=$dnsServers) do={
+    :log info ("ipv6 nd interface:".$interface." dns:".$dns." servers are set correctly")
+  } else={
+    :log warning ("ipv6 nd interface:".$interface." dns:".$dns." changing to ".$dnsServers)
+    :if (!test) do={
+      /ipv6/nd/set $n dns=$dnsServers
+    }
+  }
+}
