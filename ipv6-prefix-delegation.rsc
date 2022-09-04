@@ -63,7 +63,7 @@
 :local test false
 
 /ipv6/address
-:foreach a in=[find where comment ~ ("token=.*")] do={
+:foreach a in=[find where comment~("token=.*")] do={
   :local fromPool [$getTag s=[get $a comment] tag="from-pool"]
   :local token [$getTag s=[get $a comment] tag="token"]
 
@@ -74,9 +74,9 @@
   :log debug ("ipv6 address interface:".$interface." from-pool:".$fromPool." (".$pool->"prefix".") token ".$token)
 
   :if ($haveAddr = $wantAddr) do={
-    :log info ("ipv6 address interface:".$interface." address:".$haveAddr." address is set correctly")
+    :log debug ("ipv6 address interface:".$interface." address:".$haveAddr." address is set correctly")
   } else={
-    :log info ("ipv6 address interface:".$interface." address:".$haveAddr." changing to ".$wantAddr)
+    :log warning ("ipv6 address interface:".$interface." address:".$haveAddr." changing to ".$wantAddr)
     :if (!test) do={
       /ipv6/address/set $a address=$wantAddr
     }
@@ -84,7 +84,7 @@
 }
 
 /ipv6/firewall/address-list
-:foreach a in=[find where comment ~ ("token=.*") ] do={
+:foreach a in=[find where comment~("token=.*")] do={
   :local fromPool [$getTag s=[get $a comment] tag="from-pool"]
   :local token [$getTag s=[get $a comment] tag="token"]
 
@@ -95,9 +95,9 @@
   :log debug ("ipv6 address list:".$list.": from-pool:".$fromPool." (".$pool->"prefix"."), token ".$token)
 
   :if ($haveAddr = $wantAddr) do={
-    :log info ("ipv6 address list:".$list." address:".$haveAddr." address is set correctly")
+    :log debug ("ipv6 address list:".$list." address:".$haveAddr." address is set correctly")
   } else={
-    :log info ("ipv6 address list:".$list." address:".$haveAddr." changing to ".$wantAddr)
+    :log warning ("ipv6 address list:".$list." address:".$haveAddr." changing to ".$wantAddr)
     :if (!test) do={
       /ipv6/firewall/address-list/set $a address=$wantAddr
     }
