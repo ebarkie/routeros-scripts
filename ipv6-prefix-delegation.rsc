@@ -92,7 +92,7 @@
   :log debug ("ipv6 address interface:".$interface." from-pool:".$fromPool." (".$pool->"prefix".") token ".$token)
 
   :if ($haveAddr=$wantAddr) do={
-    :log info ("ipv6 address interface:".$interface." address:".$haveAddr." address is set correctly")
+    :log debug ("ipv6 address interface:".$interface." address:".$haveAddr." address is set correctly")
   } else={
     :log warning ("ipv6 address interface:".$interface." address:".$haveAddr." changing to ".$wantAddr)
     :if (!test) do={
@@ -111,7 +111,7 @@
   :local dns [get $nd dns]
 
   :if ($dns=$dnsServers) do={
-    :log info ("ipv6 nd interface:".$interface." dns:".$dns." servers are set correctly")
+    :log debug ("ipv6 nd interface:".$interface." dns:".$dns." servers are set correctly")
   } else={
     :log warning ("ipv6 nd interface:".$interface." dns:".$dns." changing to ".$dnsServers)
     :if (!test) do={
@@ -132,7 +132,7 @@
   :log debug ("ipv6 address list:".$list.": from-pool:".$fromPool." (".$pool->"prefix"."), token ".$token)
 
   :if ($haveAddr=$wantAddr) do={
-    :log info ("ipv6 address list:".$list." address:".$haveAddr." address is set correctly")
+    :log debug ("ipv6 address list:".$list." address:".$haveAddr." address is set correctly")
   } else={
     :log warning ("ipv6 address list:".$list." address:".$haveAddr." changing to ".$wantAddr)
     :if (!test) do={
@@ -154,7 +154,7 @@
   :log debug ("dns static name:".$name." regexp:".$regexp." from-pool:".$fromPool." (".$pool->"prefix"."), token ".$token)
 
   :if ($haveAddr=$wantAddr) do={
-    :log info ("dns static name:".$name." regexp:".$regexp." address:".$haveAddr." address is set correctly")
+    :log debug ("dns static name:".$name." regexp:".$regexp." address:".$haveAddr." address is set correctly")
   } else={
     :log warning ("dns static name:".$name." regexp:".$regexp." address:".$haveAddr." changing to ".$wantAddr)
     :if (!test) do={
