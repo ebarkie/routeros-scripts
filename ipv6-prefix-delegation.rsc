@@ -15,10 +15,13 @@
 #
 # The script will maintain the interface addresses accordingly.
 #
-# Address lists work the same way:
+# Address lists and static DNS records work the same way:
 #
 # /ipv6 firewall address-list
 # add address=::5/128 comment="from-pool=google-fiber token=::a:0:0:0:5" list=ns
+#
+# /ip/dns/static
+# add address=::5 comment="from-pool=google-fiber token=::a:0:0:0:5" name=ns1.local ttl=1m type=AAAA
 #
 # Network detection DNS broadcasts work by having one or more addresses tagged with
 # service=dns.  The address may be disabled.
@@ -77,7 +80,7 @@
 
 :local dnsServers
 /ipv6/address
-:foreach a in=[find where comment~("token=.*")] do={
+:foreach a in=[find where (comment~("from-pool=.*") and comment~("token=.*"))] do={
   :local service [$getTag s=[get $a comment] tag="service"]
   :local fromPool [$getTag s=[get $a comment] tag="from-pool"]
   :local token [$getTag s=[get $a comment] tag="token"]
@@ -93,7 +96,7 @@
   } else={
     :log warning ("ipv6 address interface:".$interface." address:".$haveAddr." changing to ".$wantAddr)
     :if (!test) do={
-      /ipv6/address/set $a address=$wantAddr
+      set $a address=$wantAddr
     }
   }
 
@@ -102,15 +105,30 @@
   }
 }
 
-/ipv6/firewall/address-list
-:foreach a in=[find where comment~("token=.*")] do={
-  :local fromPool [$getTag s=[get $a comment] tag="from-pool"]
-  :local token [$getTag s=[get $a comment] tag="token"]
+/ipv6/nd
+:foreach nd in=[find where dns!=""] do={
+  :local interface [get $nd interface];
+  :local dns [get $nd dns]
 
-  :local list [get $a list];
-  :local haveAddr [get $a address];
+  :if ($dns=$dnsServers) do={
+    :log info ("ipv6 nd interface:".$interface." dns:".$dns." servers are set correctly")
+  } else={
+    :log warning ("ipv6 nd interface:".$interface." dns:".$dns." changing to ".$dnsServers)
+    :if (!test) do={
+      set $n dns=$dnsServers
+    }
+  }
+}
+
+/ipv6/firewall/address-list
+:foreach al in=[find where (comment~("from-pool=.*") and comment~("token=.*"))] do={
+  :local fromPool [$getTag s=[get $al comment] tag="from-pool"]
+  :local token [$getTag s=[get $al comment] tag="token"]
+
+  :local list [get $al list];
+  :local haveAddr [get $al address];
   :local pool [/ipv6/pool/get $fromPool]
-  :local wantAddr ([$calcPoolAddr prefix=($pool->"prefix") token=$token ]."/128")
+  :local wantAddr ([$calcPoolAddr prefix=($pool->"prefix") token=$token]."/128")
   :log debug ("ipv6 address list:".$list.": from-pool:".$fromPool." (".$pool->"prefix"."), token ".$token)
 
   :if ($haveAddr=$wantAddr) do={
@@ -118,22 +136,29 @@
   } else={
     :log warning ("ipv6 address list:".$list." address:".$haveAddr." changing to ".$wantAddr)
     :if (!test) do={
-      /ipv6/firewall/address-list/set $a address=$wantAddr
+      set $a address=$wantAddr
     }
   }
 }
 
-/ipv6/nd
-:foreach n in=[find where dns!=""] do={
-  :local interface [get $n interface];
-  :local dns [get $n dns]
+/ip/dns/static
+:foreach n in=[find where (type="AAAA" and comment~("from-pool=.*") and comment~("token=.*"))] do={
+  :local fromPool [$getTag s=[get $n comment] tag="from-pool"]
+  :local token [$getTag s=[get $n comment] tag="token"]
 
-  :if ($dns=$dnsServers) do={
-    :log info ("ipv6 nd interface:".$interface." dns:".$dns." servers are set correctly")
+  :local name [get $n name];
+  :local regexp [get $n regexp];
+  :local haveAddr [get $n address];
+  :local pool [/ipv6/pool/get $fromPool]
+  :local wantAddr ([$calcPoolAddr prefix=($pool->"prefix") token=$token])
+  :log debug ("dns static name:".$name." regexp:".$regexp." from-pool:".$fromPool." (".$pool->"prefix"."), token ".$token)
+
+  :if ($haveAddr=$wantAddr) do={
+    :log info ("dns static name:".$name." regexp:".$regexp." address:".$haveAddr." address is set correctly")
   } else={
-    :log warning ("ipv6 nd interface:".$interface." dns:".$dns." changing to ".$dnsServers)
+    :log warning ("dns static name:".$name." regexp:".$regexp." address:".$haveAddr." changing to ".$wantAddr)
     :if (!test) do={
-      /ipv6/nd/set $n dns=$dnsServers
+      set $n address=$wantAddr
     }
   }
 }
